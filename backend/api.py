@@ -274,9 +274,12 @@ async def api_report(
             "post_neoadjuvant": str_to_bool(post_neo),
             "survival_status": "unknown",
         }
-        if _PIPELINE_AVAILABLE and saved_paths:
-            result = await run_in_threadpool(run_inference, case, 2)
-            report = result.get("report", {})
+        if _SMART_PIPELINE_AVAILABLE and saved_paths:
+            report = await run_in_threadpool(
+                run_smart_report, saved_paths, 
+                {"pT": pT, "pN": pN, "stage": stage},
+                {"kras": kras, "nras": nras, "braf": braf, "mmr": mmr}
+            )
         else:
             report = _mock_smart_report(case)
         if "error" in report:
@@ -310,9 +313,28 @@ async def api_qa(
             "kras": kras, "nras": nras, "braf": braf, "mmr": mmr,
             "post_neoadjuvant": str_to_bool(post_neo),
         }
-        if _PIPELINE_AVAILABLE and saved_paths:
-            result = await run_in_threadpool(run_discordance, case, 2)
-            qa = result.get("qa_report", {})
+        if _SMART_PIPELINE_AVAILABLE and saved_paths:
+            report = await run_in_threadpool(
+                run_smart_report, saved_paths,
+                {"pT": pT, "pN": pN, "stage": stage},
+                {"kras": kras, "nras": nras, "braf": braf, "mmr": mmr}
+            )
+            qa = {
+                "morphological_pt_estimate": report.get("morphological_pT_estimate", pT),
+                "provided_pt": pT,
+                "pt_concordant": "CONCORDANT" in (report.get("pT_comparison") or ""),
+                "differentiation_estimate": report.get("differentiation_grade", "Moderately differentiated (G2)"),
+                "tumour_stroma_ratio": report.get("tumour_stroma_ratio", "Low stroma (<50%)"),
+                "til_density": report.get("til_density", "Moderate"),
+                "til_mmr_concordant": True,
+                "budding_estimate": report.get("tumour_budding", "Low (Bd1)"),
+                "mucinous_component": report.get("mucinous_component", "<10% — Non-mucinous"),
+                "overall_discordance": "DISCORDANT" in (report.get("pT_comparison") or ""),
+                "discordance_details": [report.get("pT_comparison")] if "DISCORDANT" in (report.get("pT_comparison") or "") else [],
+                "flag_for_review": report.get("flag_for_review", False),
+                "confidence": report.get("confidence", "Moderate"),
+                "qa_summary": "Morphological features match provided staging." if "CONCORDANT" in (report.get("pT_comparison") or "") else f"Discordance detected: {report.get('pT_comparison', '')}",
+            }
         else:
             qa = {
                 "morphological_pt_estimate": pT,
