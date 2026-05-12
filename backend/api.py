@@ -1,4 +1,5 @@
 import os
+import uuid
 import json
 import asyncio
 import base64
@@ -110,10 +111,15 @@ async def health_check():
 
 
 async def _save_uploads(files: list[UploadFile]) -> list[str]:
-    """Save uploaded files to temp dir and return absolute paths."""
+    """
+    Save uploaded files to temp dir with UUID prefix and return absolute paths.
+    UUID prefix prevents concurrent requests with identical filenames from
+    overwriting each other (race condition fix).
+    """
     saved = []
     for f in files:
-        dest = TEMP_DIR / f.filename
+        safe_name = f"{uuid.uuid4().hex}_{f.filename}"
+        dest = TEMP_DIR / safe_name
         content = await f.read()
         dest.write_bytes(content)
         saved.append(str(dest))
@@ -202,7 +208,8 @@ async def api_smart_report(
 ):
     try:
         saved_paths = await _save_uploads(files)
-        clinical_inputs = {"pT": pT, "pN": pN, "stage": stage}
+        # Include post_neoadjuvant so compute_risk_tier() gets the correct flag
+        clinical_inputs = {"pT": pT, "pN": pN, "stage": stage, "post_neoadjuvant": str_to_bool(post_neo)}
         molecular_inputs = {"kras": kras, "nras": nras, "braf": braf, "mmr": mmr}
 
         if _SMART_PIPELINE_AVAILABLE and saved_paths:
@@ -319,6 +326,23 @@ async def api_qa(
                 {"pT": pT, "pN": pN, "stage": stage},
                 {"kras": kras, "nras": nras, "braf": braf, "mmr": mmr}
             )
+            til = (report.get("til_density") or "").lower()
+            mmr_status = (report.get("mmr_status") or "").lower()
+            # High TIL + pMMR is biologically atypical (usually dMMR shows high TILs).
+            # Flag as discordant to prompt IHC verification.
+            til_mmr_concordant = not (til == "high" and "proficient" in mmr_status)
+
+            discordances = []
+            if "DISCORDANT" in (report.get("pT_comparison") or ""):
+                discordances.append(report["pT_comparison"])
+            if "DISCORDANT" in (report.get("pN_comparison") or ""):
+                discordances.append(report["pN_comparison"])
+            if not til_mmr_concordant:
+                discordances.append(
+                    f"TIL/MMR discordance: High TIL density with {report.get('mmr_status', 'pMMR')} — "
+                    "consider repeat MMR IHC."
+                )
+
             qa = {
                 "morphological_pt_estimate": report.get("morphological_pT_estimate", pT),
                 "provided_pt": pT,
@@ -326,14 +350,18 @@ async def api_qa(
                 "differentiation_estimate": report.get("differentiation_grade", "Moderately differentiated (G2)"),
                 "tumour_stroma_ratio": report.get("tumour_stroma_ratio", "Low stroma (<50%)"),
                 "til_density": report.get("til_density", "Moderate"),
-                "til_mmr_concordant": True,
+                "til_mmr_concordant": til_mmr_concordant,
                 "budding_estimate": report.get("tumour_budding", "Low (Bd1)"),
                 "mucinous_component": report.get("mucinous_component", "<10% — Non-mucinous"),
-                "overall_discordance": "DISCORDANT" in (report.get("pT_comparison") or ""),
-                "discordance_details": [report.get("pT_comparison")] if "DISCORDANT" in (report.get("pT_comparison") or "") else [],
-                "flag_for_review": report.get("flag_for_review", False),
+                "overall_discordance": len(discordances) > 0,
+                "discordance_details": discordances,
+                "flag_for_review": report.get("flag_for_review", False) or not til_mmr_concordant,
                 "confidence": report.get("confidence", "Moderate"),
-                "qa_summary": "Morphological features match provided staging." if "CONCORDANT" in (report.get("pT_comparison") or "") else f"Discordance detected: {report.get('pT_comparison', '')}",
+                "qa_summary": (
+                    "Morphological features match provided staging."
+                    if len(discordances) == 0
+                    else f"{len(discordances)} discordance(s) detected: " + " | ".join(discordances)
+                ),
             }
         else:
             qa = {

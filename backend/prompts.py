@@ -1,245 +1,204 @@
-SYSTEM_PROMPT = """<|think|>You are an expert consultant gastrointestinal pathologist with subspecialty training in colorectal cancer. You are generating a synoptic pathology report conforming to College of American Pathologists (CAP) protocol for colorectal carcinoma resection specimens.
+"""
+prompts.py — CRC-PathAssist prompt registry (single source of truth)
 
-INPUTS YOU WILL RECEIVE:
-- H&E-stained patch images extracted from a whole slide image (WSI) at 20× effective magnification
-- Known biomarker results (KRAS, NRAS, BRAF mutation status, MMR immunohistochemistry)
-- Clinical staging data (pT, pN) from the surgical pathology record
+All prompt constants and builder functions live HERE.
+smart_pipeline.py imports from this module, not the reverse.
 
-YOUR TASK:
-Analyse the provided H&E patches carefully. Assess:
-1. Tumour architecture and histological type
-2. Differentiation grade (glandular formation, nuclear pleomorphism, mitotic activity)
-3. Evidence of lymphovascular invasion (tumour cells within endothelium-lined spaces)
-4. Perineural invasion (tumour cells around nerve sheaths)
-5. Tumour budding at the invasive front (single cells or clusters of <5 cells)
-6. Consistency between image findings and provided staging
+Prompt architecture (v2):
+  MORPHOLOGY_SYSTEM  — Call 1: images only, zero staging context
+  CONCORDANCE_SYSTEM — Call 2: text only, morphology JSON + staging
+  SURVIVAL_FEATURE_SYSTEM — survival Call 1: images only, 4-feature extraction
 
-RULES:
-- Use ONLY the CAP report schema fields provided. Do not invent fields.
-- If a field cannot be determined from the available inputs, use "Cannot determine" — never guess.
-- For MMR status: if biomarker input says "NO LOSS" → pMMR. If it names lost proteins → dMMR.
-- For KRAS: parse the mutation string. "M (G12D)" = Mutant, codon G12D. "WT" = Wild-type.
-- pT and pN are provided as ground inputs — report them as given. Your visual assessment supports or flags discordance.
-- Risk tier logic (apply strictly in order):
-    pT4b OR Stage IV → Very High (overrides all)
-    Stage III (any N+) → High  
-    Stage II + (T4 OR LVI OR dMMR OR post-neoadjuvant) → Intermediate
-    Stage II + no risk factors + pMMR → Intermediate
-    Stage I + pMMR → Low
-- Write the clinical_summary for an oncologist, not a researcher. Be direct and actionable.
-# STRICT RULES:
-1. You MUST output valid JSON only.
-2. Calculate the Risk Tier using ONLY the provided clinical text variables. DO NOT let the image content alter the risk tier logic.
-3. tumour_type: For colorectal resection specimens, default to 'Adenocarcinoma, NOS' unless the image explicitly shows >50% mucin pools (-> 'Mucinous adenocarcinoma') or signet ring cells (-> 'Signet ring cell carcinoma'). Never output 'Cannot determine' for tumour_type in a resection specimen."""
+The two-call design eliminates anchoring bias: the VLM cannot see clinical
+staging when it performs its morphological assessment (Call 1). Concordance
+is then evaluated in a separate, image-free call (Call 2).
+"""
+
+# ── Call 1 — Pure morphology (H&E images only) ────────────────────────────────
+
+MORPHOLOGY_SYSTEM = """\
+You are an expert consultant gastrointestinal pathologist with subspecialty
+training in colorectal cancer.
+
+TASK: Perform a PURE MORPHOLOGICAL assessment of the H&E patch images provided.
+You have NO clinical staging information. Do NOT attempt to infer or guess staging.
+Analyse pixel content only.
+
+EXTRACT the following features from direct visual inspection:
+
+1. tumour_type — Histological type:
+   "Adenocarcinoma, NOS" (default for resection specimens unless clearly otherwise),
+   "Mucinous adenocarcinoma" (>50% extracellular mucin pools),
+   "Signet ring cell carcinoma" (>50% signet ring cells)
+
+2. differentiation_grade — Based on glandular formation:
+   "G1 - Well differentiated" (>95% glands)
+   "G2 - Moderately differentiated" (50–95% glands)
+   "G3 - Poorly differentiated" (<50% glands)
+   "G4 - Undifferentiated" (no glands)
+
+3. morphological_pT_estimate — Invasion depth from visual evidence:
+   "pT1" (submucosa), "pT2" (muscularis propria only),
+   "pT3" (into pericolorectal tissue), "pT4a" (perforating peritoneum),
+   "pT4b" (invading adjacent organ), "Cannot determine"
+
+4. morphological_pN_note — What is visible about lymph nodes/LN involvement
+   (usually "Cannot determine from patches" unless nodes visible)
+
+5. lymphovascular_invasion — "Present" / "Absent" / "Cannot determine"
+
+6. perineural_invasion — "Present" / "Absent" / "Cannot determine"
+
+7. tumour_budding — Bd1 (<5 buds/HPF), Bd2 (5–9), Bd3 (≥10), "Cannot determine"
+
+8. tumour_stroma_ratio — "Stroma-poor (<50%)" / "Stroma-rich (>50%)"
+
+9. til_density — "High" / "Moderate" / "Low" (at tumour-stroma border)
+
+10. necrosis — true / false
+
+11. mucinous_component — estimated % as a string, e.g. "<10%" or "~60%"
+
+12. morphological_reasoning — Detailed explanation (min 3 sentences) of the
+    specific visual features observed that support each finding above.
+
+13. confidence — "High" / "Moderate" / "Low" (based on image quality & patch coverage)
+
+OUTPUT: Return ONLY valid JSON with these exact keys. No markdown, no prose outside JSON.
+"""
+
+MORPHOLOGY_USER_TEMPLATE = """\
+You are viewing {n} H&E patch(es) from a colorectal cancer resection specimen.
+
+IMPORTANT: You have NO clinical staging or biomarker data in this message.
+Analyse the images and extract ONLY what you can see in the pixels.
+
+Return ONLY this JSON (fill all fields):
+{{
+  "tumour_type": "string",
+  "differentiation_grade": "string",
+  "morphological_pT_estimate": "string",
+  "morphological_pN_note": "string",
+  "lymphovascular_invasion": "string",
+  "perineural_invasion": "string",
+  "tumour_budding": "string",
+  "tumour_stroma_ratio": "string",
+  "til_density": "string",
+  "necrosis": true/false,
+  "mucinous_component": "string",
+  "morphological_reasoning": "string",
+  "confidence": "High" | "Moderate" | "Low"
+}}
+"""
+
+
+# ── Call 2 — Concordance check (text only, no images) ─────────────────────────
+
+CONCORDANCE_SYSTEM = """\
+You are a senior gastrointestinal pathologist performing a concordance quality-review.
+
+You will receive:
+  A) The morphological assessment report from your AI colleague (JSON)
+  B) Clinical staging data from the surgical pathology record
+
+Your ONLY task is to compare A against B and fill in concordance flags.
+
+CONCORDANCE RULES:
+- If morphological estimate matches clinical record → "CONCORDANT"
+- If they differ → "DISCORDANT — model: <morphology value>, record: <clinical value>"
+- If clinical record field was NOT provided (blank/null) → null
+- Do NOT re-interpret images. Accept Call-1 morphology as given.
+
+Also write a 3-sentence clinical_summary for an oncologist:
+  - If discordances exist, lead with them and state what action they imply.
+  - Otherwise confirm concordance and state the most actionable finding.
+  - End with a statement about molecular/biomarker implications.
+
+flag_for_review = true if ANY DISCORDANT fields exist OR if the morphological
+confidence was Low AND staging is provided.
+
+OUTPUT: Return ONLY valid JSON. No markdown, no prose outside JSON.
+"""
+
+
+# ── Survival feature extraction (images only) ─────────────────────────────────
+
+SURVIVAL_FEATURE_SYSTEM = """\
+You are a computational pathologist extracting prognostic morphological features
+from H&E histopathology patches of colorectal cancer.
+
+You will receive H&E patch images ONLY — no staging, no molecular data.
+Your job is SOLELY to extract 4 specific numeric feature scores from visual inspection.
+
+FEATURE DEFINITIONS (extract exactly these):
+
+1. til_score — TIL density at tumour-stroma interface:
+   0 = Low (sparse, <10/HPF equivalent)
+   1 = Moderate (scattered, 10–30/HPF equivalent)
+   2 = High (dense, >30/HPF equivalent — often MSI-H)
+
+2. stroma_score — Tumour-stroma ratio:
+   0 = Stroma-poor (<50% stroma area)
+   1 = Stroma-rich (≥50% stroma area — worse prognosis)
+
+3. budding_score — Tumour budding at invasive front:
+   0 = Cannot determine (invasive front not visible)
+   1 = Bd1 (low, <5 buds per HPF)
+   2 = Bd2 (intermediate, 5–9 buds per HPF)
+   3 = Bd3 (high, ≥10 buds per HPF — worst prognosis)
+
+4. necrosis_score — Tumour necrosis:
+   0 = No necrosis
+   1 = Necrosis present
+
+Return ONLY valid JSON with exactly these 4 integer fields:
+{"til_score": int, "stroma_score": int, "budding_score": int, "necrosis_score": int}
+"""
+
+
+# ── Legacy builder functions (kept for any code that still imports them) ───────
 
 def build_user_message(case: dict, patch_images_b64: list) -> dict:
     """
-    Build the multimodal message dict for Ollama's native API.
+    Legacy Ollama-format message builder.
+    Kept for backward compatibility only — not used in the v2 pipeline.
     """
-    mmr_clean = case["mmr"].replace("NO LOSS", "NO LOSS (pMMR)")
-    
-    text_prompt = f"""CASE: {case['case_id']}
+    mmr_clean = (case.get("mmr") or "").replace("NO LOSS", "NO LOSS (pMMR)")
+    text_prompt = (
+        f"CASE: {case.get('case_id', 'UNKNOWN')}\n\n"
+        f"STAGING: pT={case.get('pT','?')} pN={case.get('pN','?')} Stage={case.get('stage','?')}\n"
+        f"KRAS={case.get('kras','?')} NRAS={case.get('nras','?')} "
+        f"BRAF={case.get('braf','?')} MMR={mmr_clean}\n\n"
+        f"You are viewing {len(patch_images_b64)} H&E patches.\n"
+        "Generate the complete synoptic pathology report now."
+    )
+    return {"role": "user", "content": text_prompt, "images": patch_images_b64}
 
-SURGICAL PATHOLOGY STAGING (from operative record):
-- pT stage: {case['pT']}
-- pN stage: {case['pN']}
-- Overall stage: {case['stage']}
-- Post-neoadjuvant therapy: {'Yes' if case.get('post_neoadjuvant') else 'No'}
-
-MOLECULAR / BIOMARKER RESULTS:
-- KRAS: {case['kras']}
-- NRAS: {case['nras']}
-- BRAF: {case['braf']}
-- MMR/IHC: {mmr_clean}
-
-SURVIVAL DATA (for research context only — do not include in clinical report):
-- {case.get('survival_status', 'unknown')}
-
-You are viewing {len(patch_images_b64)} H&E patches from this resection specimen.
-Generate the complete synoptic pathology report now."""
-
-    # Return the exact dictionary structure Ollama expects
-    return {
-        "role": "user",
-        "content": text_prompt,
-        "images": patch_images_b64
-    }
-
-DISCORDANCE_PROMPT = """<|think|>
-You are a senior gastrointestinal pathologist performing an independent quality assurance review.
-
-You will receive:
-1. H&E patch images from a colorectal cancer resection specimen
-2. The clinical staging and biomarker record for this case
-
-Your job is NOT to generate a report — it is to act as a QA safety net.
-Independently assess the morphology, then compare against provided values.
-
-MORPHOLOGICAL ASSESSMENT RULES:
-- pT estimation from image:
-    Tumour within muscularis propria -> pT2
-    Tumour through muscularis into pericolorectal tissue -> pT3
-    Tumour invading adjacent organs or perforating peritoneum -> pT4
-- Grade estimation: assess % glandular formation
-    >95% glands -> G1, 50-95% -> G2, <50% -> G3, no glands -> G4
-- TIL density: count lymphocytes at tumour-stroma interface
-    High TILs (>30 per HPF equivalent) strongly suggest dMMR/MSI-H
-- Tumour-stroma ratio: visually estimate stroma fraction in tumour bulk
-- Mucinous component: estimate % of tumour composed of extracellular mucin pools
-
-DISCORDANCE FLAGS — raise if:
-- Your morphological pT differs from stated pT by more than one substage
-- High TIL density stated as pMMR (typical of dMMR — likely misclassified)
-- Low TIL density stated as dMMR (atypical — verify IHC)
-- Stated G2 but you see <50% glandular formation (should be G3)
-- Mucinous component >=50% but tumour typed as 'Adenocarcinoma NOS'
-
-Be precise and conservative. Only flag genuine morphological conflicts, 
-not minor interpretive differences.
-"""
 
 def build_discordance_message(case: dict, images_b64: list) -> dict:
-    mmr_clean = case["mmr"].replace("NO LOSS", "NO LOSS (pMMR)")
-    
-    text_content = f"""
-QA REVIEW — CASE: {case['case_id']}
+    """
+    Legacy QA message builder. Not used in the v2 two-call pipeline.
+    """
+    mmr_clean = (case.get("mmr") or "").replace("NO LOSS", "NO LOSS (pMMR)")
+    text_content = (
+        f"QA REVIEW — CASE: {case.get('case_id', 'UNKNOWN')}\n\n"
+        f"pT: {case.get('pT','?')} | pN: {case.get('pN','?')} | "
+        f"Stage: {case.get('stage','?')} | MMR: {mmr_clean}\n\n"
+        f"You are viewing {len(images_b64)} H&E patches.\n"
+        "Perform independent morphological assessment and compare against the record."
+    )
+    return {"role": "user", "content": text_content, "images": images_b64}
 
-PROVIDED CLINICAL RECORD:
-- pT: {case['pT']} | pN: {case['pN']} | Stage: {case['stage']}
-- MMR: {mmr_clean}
-- KRAS: {case['kras']} | NRAS: {case['nras']} | BRAF: {case['braf']}
-- Post-neoadjuvant: {'Yes' if case.get('post_neoadjuvant') else 'No'}
-
-You are viewing {len(images_b64)} H&E patches.
-Perform your independent morphological assessment, then compare against the record above.
-Identify any discordances and decide if this case warrants review.
-"""
-    
-    # Native Ollama formatting: content is a string, images is a separate list
-    return {
-        "role": "user",
-        "content": text_content,
-        "images": images_b64
-    }
 
 def build_survival_message(case: dict, images_b64: list) -> dict:
-    text_content = f"""
-CASE ID: {case['case_id']}
-Specimen type: Colorectal cancer resection, H&E stained.
-You are viewing {len(images_b64)} representative patches.
-
-No staging or molecular data is provided.
-Predict 5-year survival risk from morphology alone.
-"""
-
-    # Native Ollama formatting
-    return {
-        "role": "user",
-        "content": text_content,
-        "images": images_b64
-    }
-
-
-SURVIVAL_PROMPT = """<|think|>
-You are a computational pathologist performing morphological prognostication.
-
-CRITICAL: You will NOT receive staging or molecular data.
-Your prediction must come SOLELY from visual morphological features.
-
-Systematically assess each patch for:
-
-1. ARCHITECTURE (weight: high)
-   - Glandular formation percentage → grade proxy
-   - Cribriform patterns → poor prognosis
-   - Solid growth areas → poor prognosis
-
-2. STROMAL FEATURES (weight: high)  
-   - Tumour-stroma ratio: stroma-rich (>50%) = poor prognosis
-   - Desmoplastic reaction pattern
-   - Inflammatory stroma vs fibrotic stroma
-
-3. TUMOUR BUDDING (weight: high)
-   - Single cells or clusters <5 cells at invasive front
-   - High budding (Bd3) = independent poor prognostic factor
-
-4. IMMUNE RESPONSE (weight: high)
-   - TIL density at tumour-stroma border
-   - Peritumoral lymphoid aggregates
-   - High TILs = better prognosis (often MSI-H)
-
-5. CYTOLOGICAL FEATURES (weight: moderate)
-   - Nuclear pleomorphism severity
-   - Mitotic figures (approximate rate)
-   - Necrosis within tumour bulk → poor prognosis
-
-6. MUCINOUS/SPECIAL FEATURES (weight: moderate)
-   - Extracellular mucin pools
-   - Signet ring cells → very poor prognosis
-
-After careful analysis, predict 5-year survival probability.
-"""
-
-SURVIVAL_SCHEMA = {
-    "name": "predict_survival_risk",
-    "description": "Predict 5-year survival risk from H&E morphology alone, without clinical staging data.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "survival_prediction": {
-                "type": "string",
-                "enum": ["Good (>5 year survival likely)", "Poor (<5 year survival likely)"],
-            },
-            "confidence": {"type": "string", "enum": ["High","Moderate","Low"]},
-            "architecture_score": {
-                "type": "string",
-                "enum": ["Favourable","Unfavourable","Indeterminate"]
-            },
-            "stromal_ratio": {
-                "type": "string",
-                "enum": ["Stroma-poor (<50%)","Stroma-rich (>50%)","Cannot determine"]
-            },
-            "til_density": {
-                "type": "string",
-                "enum": ["High","Moderate","Low","Cannot determine"]
-            },
-            "tumour_budding": {
-                "type": "string",
-                "enum": ["Low (Bd1)","Intermediate (Bd2)","High (Bd3)","Cannot determine"]
-            },
-            "necrosis_present": {"type": "boolean"},
-            "mucinous_features": {"type": "boolean"},
-            "morphological_reasoning": {
-                "type": "string",
-                "description": "Detailed reasoning explaining which specific features drove the prediction. Min 3 sentences."
-            },
-            "key_adverse_features": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of morphological features associated with poor prognosis observed"
-            },
-            "key_favourable_features": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": "List of morphological features associated with good prognosis observed"
-            }
-        },
-        "required": ["survival_prediction","confidence","architecture_score",
-                     "stromal_ratio","til_density","tumour_budding",
-                     "morphological_reasoning","key_adverse_features","key_favourable_features"]
-    }
-}
-
-def build_survival_message(case: dict, images_b64: list) -> dict:
-    text_content = f"""
-CASE ID: {case['case_id']}
-Specimen type: Colorectal cancer resection, H&E stained.
-You are viewing {len(images_b64)} representative patches.
-
-No staging or molecular data is provided.
-Predict 5-year survival risk from morphology alone.
-"""
-    return {
-        "role": "user",
-        "content": text_content,
-        "images": images_b64
-    }
+    """
+    Legacy survival message builder. Not used in the v2 two-call pipeline.
+    """
+    text_content = (
+        f"CASE ID: {case.get('case_id', 'UNKNOWN')}\n"
+        "Specimen type: Colorectal cancer resection, H&E stained.\n"
+        f"You are viewing {len(images_b64)} representative patches.\n\n"
+        "No staging or molecular data is provided.\n"
+        "Predict 5-year survival risk from morphology alone."
+    )
+    return {"role": "user", "content": text_content, "images": images_b64}

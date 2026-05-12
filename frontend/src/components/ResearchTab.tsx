@@ -21,7 +21,7 @@ export default function ResearchTab() {
         </div>
         <div className="p-6">
           <p className="text-sm text-slate-700 leading-relaxed">
-            <strong>CRC-PathAssist</strong> is a dual-output AI pathology assistant using <strong>Gemma 4 26B-A4B</strong> on H&E patches from the <strong>SurGen SR386 dataset</strong> (427 colorectal cancer cases, open access, BioImage Archive). It delivers two parallel outputs from each case: (1) a CAP-aligned synoptic pathology report with concordance checking against user-provided staging, and (2) a 5-year survival prediction using a Logistic Regression classifier trained on Gemma 4-extracted morphological features.
+            <strong>CRC-PathAssist</strong> is a dual-output AI pathology assistant using <strong>Gemma 4 4B</strong> on H&E patches from the <strong>SurGen SR386 dataset</strong> (427 colorectal cancer cases, open access, BioImage Archive). It delivers two parallel outputs from each case: (1) a CAP-aligned synoptic pathology report with concordance checking against user-provided staging, and (2) a 5-year survival prediction using a Logistic Regression classifier trained on Gemma 4-extracted morphological features.
           </p>
         </div>
       </section>
@@ -33,7 +33,7 @@ export default function ResearchTab() {
         </div>
         <div className="p-6">
           <div className="flex flex-wrap gap-2 items-center text-sm font-medium text-slate-700 mb-4">
-            {['H&E Patches','→','Gemma 4 26B Visual Assessment','→','Morphological Findings','→','Compare vs. User Staging','→','Concordance / Discordance Flags','→','CAP Synoptic Report + PDF'].map((s, i) => (
+            {['H&E Patches','→','Gemma 4 4B Visual Assessment','→','Morphological Findings','→','Compare vs. User Staging','→','Concordance / Discordance Flags','→','CAP Synoptic Report + PDF'].map((s, i) => (
               s === '→'
                 ? <span key={i} className="text-blue-400 font-bold text-lg">›</span>
                 : <span key={i} className="bg-blue-50 border border-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-semibold">{s}</span>
@@ -97,7 +97,7 @@ export default function ResearchTab() {
                 </tr>
                 <tr>
                   <td className="p-3 text-slate-700">End-to-end prediction</td>
-                  <td className="p-3 text-slate-600 font-mono text-xs">Gemma 4 26B-A4B (API)</td>
+                  <td className="p-3 text-slate-600 font-mono text-xs">Gemma 4 26B-A4B</td>
                   <td className="p-3 text-center text-amber-600 font-mono font-bold">0.500</td>
                   <td className="p-3 text-center text-amber-600 font-mono font-bold">38.6%</td>
                   <td className="p-3 text-slate-500">Random chance baseline</td>
