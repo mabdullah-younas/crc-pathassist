@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.env
+frontend/dist/
+
+# Runtime / Generated outputs
+temp_uploads/
+outputs/
+*.pdf
+*.log
+
+# Gradio cache
+.gradio/
+
+# Large data (uncomment to exclude raw image patches from git)
+# data/patches/
+
+# Secrets / API keys (NEVER commit these)
+backend/.env
+.env
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
