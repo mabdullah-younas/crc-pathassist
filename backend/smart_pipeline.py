@@ -33,7 +33,7 @@ from prompts import (
 
 # ── Model config ──────────────────────────────────────────────────────────────
 MODEL = "gemma4:e4b"
-N_PATCHES = 2
+N_PATCHES = 4
 PATCH_SIZE = 448
 
 # ── LR model path ─────────────────────────────────────────────────────────────
@@ -106,10 +106,20 @@ def _call_ollama(system_prompt: str, user_prompt: str, images_b64: list[str]) ->
             res_body = response.read()
             res_json = json.loads(res_body)
             return res_json.get("response", "")
+    except urllib.error.HTTPError as e:
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            error_body = ""
+        raise RuntimeError(
+            f"Ollama connection failed: HTTP {e.code} - {e.reason}. "
+            f"Details: {error_body}. "
+            "Ensure Ollama has enough memory and the model is pulled."
+        )
     except Exception as e:
         raise RuntimeError(
             f"Ollama connection failed: {e}. "
-            "Ensure Ollama is running locally and your gemma model is pulled."
+            "Ensure Ollama is running locally and your model is pulled."
         )
 
 

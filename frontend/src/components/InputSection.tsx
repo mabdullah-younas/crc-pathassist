@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { Upload, X, Image as ImageIcon, Info } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Upload, X, Image as ImageIcon, Info, AlertTriangle } from 'lucide-react';
 
 export default function InputSection({
   caseId, setCaseId,
@@ -15,10 +15,18 @@ export default function InputSection({
 }: any) {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setPatches(Array.from(e.target.files));
+      const files = Array.from(e.target.files);
+      if (files.length > 4) {
+        setUploadError(`You selected ${files.length} patches. Gemma 4 4B performs best with up to 4 patches. Exceeding this limit causes context overload and hallucinations. Limit applied to 4 patches.`);
+        setPatches(files.slice(0, 4));
+      } else {
+        setUploadError(null);
+        setPatches(files);
+      }
     }
   };
 
@@ -87,7 +95,14 @@ export default function InputSection({
                   <Upload className="w-4 h-4" />
                 </div>
                 <p className="text-sm font-semibold text-slate-700">Click to upload patches</p>
-                <p className="text-xs text-slate-500 mt-1">PNG, JPG up to 10MB</p>
+                <p className="text-xs text-slate-500 mt-1">Max 4 patches (PNG, JPG)</p>
+              </div>
+            )}
+            
+            {uploadError && (
+              <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-amber-800 leading-tight">{uploadError}</p>
               </div>
             )}
           </div>

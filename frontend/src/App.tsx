@@ -81,12 +81,17 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100">
       <header className="bg-white border-b border-slate-200 px-8 h-16 flex items-center justify-between flex-shrink-0 sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold">
+          <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center text-white font-bold shadow-sm">
             <Microscope className="w-5 h-5" />
           </div>
-          <span className="font-semibold text-lg tracking-tight text-slate-800">
-            CRC-PathAssist <span className="text-blue-600">Engine</span>
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="font-semibold text-lg tracking-tight text-slate-800">
+              CRC-PathAssist <span className="text-blue-600">Engine</span>
+            </span>
+            <div className="hidden sm:flex items-center px-2.5 py-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-md shadow-sm">
+              <span className="text-[11px] font-bold tracking-wider text-white uppercase">Powered by Gemma4</span>
+            </div>
+          </div>
         </div>
         <div className="hidden md:flex items-center gap-2">
           {backendStatus === 'down' && (
