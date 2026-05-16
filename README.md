@@ -1,6 +1,6 @@
-﻿# CRC-PathAssist
+# CRC-PathAssist
 
-**Privacy-preserving AI pathology assistant for colorectal cancer** — powered by **Gemma 4 (E4B)** running locally via **Ollama**. No cloud. No PHI leaves the device.
+**Privacy-preserving AI pathology assistant for colorectal cancer** — powered by **Gemma 4 (gemma4:e4b)** running locally via **Ollama**. No cloud. No API keys. No PHI leaves the device.
 
 Hackathon: [Gemma 4 Good Hackathon](https://www.kaggle.com/competitions/gemma-4-good-hackathon) · Health & Sciences track · Ollama track
 
@@ -17,7 +17,7 @@ CRC-PathAssist takes H&E histopathology patch images from a colorectal cancer re
 | Risk stratification | Deterministic CAP/AJCC risk tier computed in Python (not delegated to LLM) |
 | Survival risk score | Logistic regression classifier over 4 extracted morphological features |
 | Local inference | gemma4:e4b via Ollama — runs on a 6 GB VRAM GPU (RTX 3060/4050) |
-| Offline operation | Zero external API calls during inference |
+| Offline operation | Zero external API calls — no internet connection required during inference |
 
 ---
 
@@ -66,7 +66,9 @@ The standard single-call approach has an anchoring bias problem: if the model se
 │   ├── smart_pipeline.py      # Core inference (two-call + Python validator)
 │   ├── prompts.py             # All system prompts (single source of truth)
 │   ├── schema.py              # Pydantic data models
-│   └── requirements.txt
+│   ├── requirements.txt       # Python dependencies
+│   ├── .env.example           # Environment template (copy to .env)
+│   └── temp_uploads/          # Auto-created upload directory
 │
 ├── frontend/
 │   ├── src/
@@ -86,12 +88,15 @@ The standard single-call approach has an anchoring bias problem: if the model se
 │   └── check_labels.py
 │
 ├── lr_survival_model.pkl      # Pre-trained logistic regression (research only)
+├── survival_morphology.ipynb  # Model training notebook
 └── README.md
 ```
 
 ---
 
 ## Quick start
+
+> **Full setup guide**: see [SETUP.md](SETUP.md)
 
 ### Prerequisites
 
@@ -100,7 +105,10 @@ The standard single-call approach has an anchoring bias problem: if the model se
 - Ollama with gemma4:e4b pulled
 
 ```bash
+# 1. Install Ollama from https://ollama.ai/
+# 2. Pull the model (one-time, ~5 GB download)
 ollama pull gemma4:e4b
+# 3. Start Ollama (keep this running)
 ollama serve
 ```
 
@@ -108,11 +116,20 @@ ollama serve
 
 ```bash
 cd backend
+
+# Create and activate virtual environment
 python -m venv ../env
 ../env/Scripts/activate        # Windows
 # source ../env/bin/activate   # Linux/Mac
 
+# Install dependencies
 pip install -r requirements.txt
+
+# Copy environment config (no API keys needed)
+copy .env.example .env         # Windows
+# cp .env.example .env         # Linux/Mac
+
+# Start API server
 python -m uvicorn api:app --reload --port 8000
 ```
 
@@ -124,7 +141,7 @@ npm install
 npm run dev
 ```
 
-App: `http://localhost:5173` · API: `http://localhost:8000`
+App: `http://localhost:3000` · API: `http://localhost:8000` · API docs: `http://localhost:8000/docs`
 
 ### Using the app
 
@@ -132,7 +149,7 @@ App: `http://localhost:5173` · API: `http://localhost:8000`
 2. Optionally enter clinical staging (pT, pN, overall stage)
 3. Optionally enter molecular results (KRAS, NRAS, BRAF, MMR)
 4. Click **Generate Report**
-5. View synoptic report, concordance flags, survival risk score, and PDF export
+5. View synoptic report, concordance flags, survival risk score
 
 ---
 
@@ -164,7 +181,7 @@ PATCH_SIZE = 256  # increase if you have more VRAM
 | Tier 2 (_interface) | 30% | Tumour-stroma interface | TIL density, stroma ratio |
 | Tier 3 (_centre) | 20% | Tumour centre | Grade, necrosis, mucinous component |
 
-The invasive front is detected via Sobel gradient on a tissue density map computed from an overview image — high-gradient cells in the density map (0.15–0.65 range) correspond to the tissue transition zone where the tumour meets pericolorectal stroma or fat. This is the region most informative for pT staging and budding assessment.
+The invasive front is detected via Sobel gradient on a tissue density map computed from an overview image — high-gradient cells in the density map (0.15–0.65 range) correspond to the tissue transition zone where the tumour meets pericolorectal stroma or fat.
 
 Target resolution: 0.5 MPP (~20× effective magnification).
 
@@ -230,9 +247,9 @@ If you do not have CZI slides, you can test the pipeline using publicly availabl
 
 | Dataset         | Size                         | MPP       | Access |
 |-----------------|------------------------------|-----------|--------|
-| CRC-VAL-HE-7K   | 7,180 patches, 224×224px     | 0.5 MPP   | [zenodo.org/records/1214456](https://zenodo.org/records/1214456) 
-| NCT-CRC-HE-100K | 100,000 patches, 224×224px   | 0.5 MPP   | [zenodo.org/records/1214456](https://zenodo.org/records/1214456) 
-| TCGA-COAD (WSI) | Full slides with pT/pN labels| variable  | [cancerimagingarchive.net](https://www.cancerimagingarchive.net/collection/tcga-coad/) 
+| CRC-VAL-HE-7K   | 7,180 patches, 224×224px     | 0.5 MPP   | [zenodo.org/records/1214456](https://zenodo.org/records/1214456)
+| NCT-CRC-HE-100K | 100,000 patches, 224×224px   | 0.5 MPP   | [zenodo.org/records/1214456](https://zenodo.org/records/1214456)
+| TCGA-COAD (WSI) | Full slides with pT/pN labels| variable  | [cancerimagingarchive.net](https://www.cancerimagingarchive.net/collection/tcga-coad/)
 
 CRC-VAL-HE-7K is the best starting point — ~200 MB download, 50 patients, same 0.5 MPP as this pipeline's target resolution.
 
@@ -243,6 +260,7 @@ CRC-VAL-HE-7K is the best starting point — ~200 MB download, 50 patients, same
 - **Privacy:** H&E slides contain identifiable patient tissue. Running inference locally ensures no PHI leaves the hospital network.
 - **Offline deployment:** Many district hospitals and pathology units in low-resource settings have no reliable internet. A locally running model works in these environments.
 - **Ollama integration:** gemma4:e4b is the right size — capable enough for multimodal pathology reasoning, small enough to run on a workstation GPU without cloud infrastructure.
+- **No API keys:** Judges and evaluators can run the app with zero account setup — just Ollama and the model weight download.
 - **Apache 2.0 license:** Gemma 4 can be freely used, modified, and deployed in research and commercial settings.
 
 ---

@@ -1,6 +1,6 @@
 # CRC-PathAssist — Complete Setup Guide
 
-**Complete setup instructions for the CRC-PathAssist application.**
+**No cloud accounts, no API keys, no internet required during inference.** Everything runs locally via Ollama.
 
 ## Prerequisites
 
@@ -44,9 +44,9 @@ source ../env/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Create .env file (optional configuration)
-echo OLLAMA_BASE_URL=http://localhost:11434 > .env
-echo OLLAMA_MODEL=gemma4:e4b >> .env
+# Copy environment config (no API keys required)
+copy .env.example .env         # Windows
+# cp .env.example .env         # Linux/Mac
 
 # Start API server
 python -m uvicorn api:app --reload --port 8000
@@ -243,10 +243,10 @@ gunicorn -w 4 -k uvicorn.workers.UvicornWorker api:app
 
 ## Additional Resources
 
-- **FastAPI Docs**: http://localhost:8000/docs (when backend running)
+- **FastAPI Interactive Docs**: http://localhost:8000/docs (when backend running)
+- **Ollama**: https://ollama.ai/
 - **Vite Guide**: https://vitejs.dev/
 - **React Documentation**: https://react.dev/
-- **Tailwind CSS**: https://tailwindcss.com/
 
 ---
 

@@ -12,24 +12,24 @@ build/
 
 # Node / Frontend
 frontend/node_modules/
-frontend/.env
 frontend/dist/
 
 # Runtime / Generated outputs
-temp_uploads/
+backend/temp_uploads/
 outputs/
 *.pdf
 *.log
 
-# Gradio cache
-.gradio/
-
-# Large data (uncomment to exclude raw image patches from git)
-# data/patches/
-
-# Secrets / API keys (NEVER commit these)
-backend/.env
+# Secrets / API keys — NEVER commit .env files containing keys
+# .env.example files ARE committed (they contain only placeholders)
+**/.env
 .env
+
+# Jupyter / notebook checkpoints
+.ipynb_checkpoints/
+
+# Large data files (uncomment to exclude raw image patches from git)
+# data/patches/
 
 # System files
 .DS_Store

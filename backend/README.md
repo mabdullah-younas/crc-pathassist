@@ -30,7 +30,7 @@ python -m uvicorn api:app --reload --port 8000
 
 - **schema.py**: Pydantic models for API requests/responses
 
-- **prompts.py**: System prompts for Ollama/Gemini models
+- **prompts.py**: System prompts for Ollama (gemma4:e4b) — all inference is local
 
 - **.env**: Configuration file (create this, copy from .env.example if provided)
 
