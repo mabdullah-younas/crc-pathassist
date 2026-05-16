@@ -27,7 +27,10 @@ if not exist "backend\api.py" (
 echo [1/5] Checking Python...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found. Install Python 3.11 or 3.12 from https://www.python.org/
+    echo.
+    echo [ERROR] Python not found. 
+    echo Please install Python 3.11 or 3.12 from https://www.python.org/
+    echo.
     pause
     exit /b 1
 )
@@ -35,13 +38,16 @@ if errorlevel 1 (
 for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
 echo         Found Python %PYVER%
 
-:: Verify Python version is stable (3.10 to 3.13) and not experimental (3.14+)
-python -c "import sys; sys.exit(0 if sys.version_info[:2] in [(3, 10), (3, 11), (3, 12), (3, 13)] else 1)" >nul 2>&1
-if errorlevel 1 (
+:: Safely check if the version string contains "3.14"
+echo %PYVER% | findstr /C:"3.14" >nul
+if %errorlevel% equ 0 (
     echo.
-    echo [CRITICAL ERROR] Python %PYVER% is an experimental release.
-    echo scikit-learn and other backend packages will fail to install.
-    echo Please install a stable version (Python 3.11 or 3.12 recommended).
+    echo ====================================================================
+    echo [CRITICAL ERROR] You are running Python %PYVER%.
+    echo Python 3.14+ is a pre-release and is incompatible with scikit-learn.
+    echo.
+    echo FIX: Please install and use stable Python 3.11 or 3.12 instead.
+    echo ====================================================================
     echo.
     pause
     exit /b 1
