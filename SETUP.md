@@ -24,7 +24,19 @@ ollama pull gemma4:e4b
 
 ---
 
-## Full Application Setup (5 minutes)
+## One-click Setup (Recommended)
+
+After installing the prerequisites above, simply run from the project root:
+
+```bat
+run.bat
+```
+
+That's it — `run.bat` handles everything else automatically (virtual environment, dependency install, both servers, and opens your browser).
+
+---
+
+## Full Application Setup (Manual — 5 minutes)
 
 ### Step 1: Backend Setup
 

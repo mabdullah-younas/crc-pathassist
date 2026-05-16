@@ -98,6 +98,27 @@ The standard single-call approach has an anchoring bias problem: if the model se
 
 > **Full setup guide**: see [SETUP.md](SETUP.md)
 
+### Option A — One-click (recommended for judges)
+
+```bat
+run.bat
+```
+
+Double-click `run.bat` from the project root. It will:
+1. Check Python, Node.js, and Ollama are installed
+2. Create the Python virtual environment (if not present)
+3. Install all Python and Node dependencies automatically
+4. Start the backend (port 8000) and frontend (port 3000) in separate windows
+5. Open `http://localhost:3000` in your browser
+
+> **Pre-requisite**: Pull the Gemma 4 model once before running (one-time ~5 GB download):
+> ```bash
+> ollama pull gemma4:e4b
+> ollama serve
+> ```
+
+### Option B — Manual setup
+
 ### Prerequisites
 
 - Python 3.10+
